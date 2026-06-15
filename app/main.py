@@ -1,57 +1,60 @@
+from loader import (
+    load_document,
+    chunk_documents
+)
+
+from rag import (
+    create_vector_store,
+    get_retriever,
+    generate_answer
+)
+
+import os 
 from dotenv import load_dotenv
 load_dotenv()
 
-from loader import (load_document,chunk_documents)
-from rag import (create_embedding,generate_answer)
-from database import (store_in_database,retrieve_content)
+DATABASE_URL =  os.getenv("DATABASE_URL")
 
-def ingest_document():
-
-    file_path = "uploads/Lecture-AI.pdf"
-
-    file_name = "ai_book.pdf"
-
-    documents = load_document(file_path)
-
-    chunks = chunk_documents(
-        documents
-    )
-
-    embedded_chunks = create_embedding(
-        chunks
-    )
-
-    store_in_database(
-        file_name=file_name,
-        embedding_chunks=embedded_chunks
-    )
-
-    print("Document Stored Successfully")
+file_path = "documents/ai_book.pdf"
 
 
-def ask_question():
+documents = load_document(
+    file_path
+)
+
+chunks = chunk_documents(
+    documents
+)
+
+vector_store = create_vector_store(
+    chunks,
+    DATABASE_URL
+)
+
+retriever = get_retriever(
+    vector_store
+)
+
+
+while True:
 
     question = input(
-        "Ask Question: "
+        "\nAsk Question: "
     )
 
-    context = retrieve_content(
+    retrieved_docs = retriever.invoke(
         question
     )
 
+    context = "\n\n".join(
+        doc.page_content
+        for doc in retrieved_docs
+    )
+
     answer = generate_answer(
-        question=question,
-        context=context
+        question,
+        context
     )
 
     print("\nAnswer:")
     print(answer)
-
-
-if __name__ == "__main__":
-
-    ingest_document()
-
-    while True:
-
-        ask_question()
