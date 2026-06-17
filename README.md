@@ -1,65 +1,79 @@
 # 🔬 Research Assistant
 
-A **Retrieval-Augmented Generation (RAG)** application that lets you upload PDF documents and ask natural language questions about them. It uses OpenAI embeddings stored in a PostgreSQL vector database (via `pgvector`) to retrieve the most relevant context and generate accurate answers with GPT-4o-mini.
+A production-ready **Retrieval-Augmented Generation (RAG)** API that lets you upload PDF documents and ask natural language questions about them. Built with **FastAPI**, **LangGraph**, **OpenAI**, and **PostgreSQL + pgvector** — with streaming support, conversation memory, and web search fallback.
 
 ---
 
 ## ✨ Features
 
-- 📄 **PDF Ingestion** — Load and chunk PDF documents automatically
-- 🧠 **Vector Embeddings** — Generate OpenAI embeddings (`text-embedding-ada-002`) for each chunk
-- 🗄️ **PostgreSQL + pgvector** — Persist and query embeddings using cosine similarity search
-- 💬 **Q&A Interface** — Interactive CLI to ask questions and get context-grounded answers
-- ⚡ **LangChain Powered** — Built on LangChain for document loading, splitting, and LLM interaction
+- 📄 **PDF Ingestion** — Upload PDFs via API; they are chunked and embedded in the background
+- 🧠 **Vector Search** — OpenAI embeddings stored in PostgreSQL with `pgvector` for cosine similarity retrieval
+- 🤖 **LangGraph Agent** — Multi-step agentic pipeline with retrieval grading and web search fallback
+- 💬 **Conversation Memory** — Per-session chat history persisted in PostgreSQL
+- ⚡ **Streaming** — Token-by-token streamed responses via Server-Sent Events
+- 📝 **Document Summarization** — One-call summarization of any uploaded document
+- 🐳 **Docker Ready** — One command to spin up the full PostgreSQL + pgvector stack
 
 ---
 
 ## 🏗️ Architecture
 
+### LangGraph Agent Flow
+
 ```
-PDF File
-   │
-   ▼
-loader.py  ──► load_document()      # PyPDFLoader
-               chunk_documents()    # RecursiveCharacterTextSplitter (300 chars, 30 overlap)
-   │
-   ▼
-rag.py     ──► create_embedding()   # OpenAIEmbeddings → vectors
-   │
-   ▼
-database.py──► store_in_database()  # SQLAlchemy + pgvector (Documents table)
-   │
-   ▼
-         [ PostgreSQL + pgvector ]
-   │
-   ▼
-database.py──► retrieve_content()   # cosine_distance query, top-5 chunks
-   │
-   ▼
-rag.py     ──► generate_answer()    # GPT-4o-mini with context prompt
-   │
-   ▼
-         Answer printed to console
+User Question
+     │
+     ▼
+load_history_node    ← load conversation history from DB
+     │
+     ▼
+retrieve_node        ← cosine similarity search (top-5 chunks)
+     │
+     ▼
+grade_retrieval_node ← LLM grades: is context sufficient?
+     │
+     ├─── YES ──────────────────────────────┐
+     │                                      │
+     └─── NO ──► web_search_node            │
+                 (DuckDuckGo fallback)       │
+                      │                     │
+                      └──────── generate_node ◄──┘
+                                     │
+                                     ▼
+                             save_messages_node ← persist Q&A to DB
+                                     │
+                                     ▼
+                                  Answer
 ```
 
----
-
-## 📁 Project Structure
+### Project Structure
 
 ```
 research_assistant/
+├── main.py                     # CLI entry point
 ├── app/
-│   ├── main.py         # Entry point: ingests document and runs Q&A loop
-│   ├── loader.py       # PDF loading and text chunking
-│   ├── rag.py          # Embedding creation and answer generation (OpenAI)
-│   └── database.py     # SQLAlchemy models, vector storage, and retrieval
-├── uploads/            # Place your PDF files here
-├── migrations/         # Alembic database migration files
-├── alembic.ini         # Alembic configuration
-├── docker-compose.yml  # (Optional) Docker setup for PostgreSQL
-├── requirements.txt    # Python dependencies
-├── .env                # Environment variables (not committed)
-└── README.md
+│   ├── core/
+│   │   ├── config.py           # Pydantic Settings — single source of env vars
+│   │   └── database.py         # SQLAlchemy models + all DB session helpers
+│   ├── rag/
+│   │   ├── loader.py           # PDF loading + text chunking
+│   │   ├── store.py            # PGVector store creation + retriever
+│   │   └── generator.py        # LLM answer generation + summarization
+│   ├── graph/
+│   │   ├── state.py            # GraphState TypedDict (shared agent state)
+│   │   ├── nodes.py            # All LangGraph node functions
+│   │   ├── edges.py            # Conditional routing logic
+│   │   ├── checkpoint.py       # PostgreSQL-backed LangGraph memory
+│   │   └── builder.py          # Graph assembly — exports compiled `graph`
+│   └── api/
+│       ├── routes.py           # All FastAPI endpoint handlers
+│       └── streaming.py        # SSE token streaming generator
+├── uploads/                    # Place PDFs here (for CLI mode)
+├── migrations/                 # Alembic migration files
+├── alembic.ini
+├── docker-compose.yml
+├── requirements.txt
+└── .env
 ```
 
 ---
@@ -69,7 +83,7 @@ research_assistant/
 ### Prerequisites
 
 - Python 3.10+
-- PostgreSQL with the [`pgvector`](https://github.com/pgvector/pgvector) extension enabled
+- Docker (for PostgreSQL + pgvector)
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 
 ### 1. Clone the Repository
@@ -103,88 +117,116 @@ Create a `.env` file in the root directory:
 
 ```env
 OPENAI_API_KEY=sk-...
-DATABASE_URL=postgresql://user:password@localhost:5432/research_assistant
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/research_assistant
 ```
 
-### 5. Set Up the Database
-
-Make sure PostgreSQL is running and the `pgvector` extension is installed:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-The application will automatically create the `documents` table on first run.
-
-### 6. Add Your PDF
-
-Place your PDF in the `uploads/` folder and update the file path in [`app/main.py`](app/main.py):
-
-```python
-file_path = "uploads/your-document.pdf"
-file_name = "your-document.pdf"
-```
-
-### 7. Run the Application
+### 5. Start the Database
 
 ```bash
-cd app
-python main.py
+docker-compose up -d
 ```
 
-The script will:
-1. **Ingest** the PDF — load, chunk, embed, and store it in the database
-2. **Start a Q&A loop** — type any question and receive a grounded answer
+This starts a PostgreSQL 16 container with the `pgvector` extension pre-installed. No manual `CREATE EXTENSION` needed.
+
+### 6. Start the API Server
+
+```bash
+uvicorn app.api.routes:app --reload
+```
+
+The API will be available at **http://localhost:8000**.  
+Open **http://localhost:8000/docs** for the interactive Swagger UI.
+
+---
+
+## 📡 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/upload` | Upload a PDF — embedding runs in the background |
+| `POST` | `/ask` | Ask a question — returns a single JSON response |
+| `POST` | `/ask_stream` | Ask a question — streams tokens as plain text |
+| `GET` | `/documents` | List all uploaded document names |
+| `DELETE` | `/documents/{file_name}` | Delete all chunks for a document |
+| `POST` | `/summarize` | Summarize an uploaded document |
+
+### Example: Upload a PDF
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "file=@your-document.pdf"
+```
+
+### Example: Ask a Question
+
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "my-session", "question": "What is the main topic?"}'
+```
+
+### Example: Streaming Response
+
+```bash
+curl -X POST http://localhost:8000/ask_stream \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "my-session", "question": "Summarize the key findings."}'
+```
+
+---
+
+## 💻 CLI Mode
+
+For quick local testing without the API server:
+
+```bash
+# 1. Place your PDF in uploads/
+# 2. Update FILE_PATH in main.py
+python main.py
+```
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Component         | Technology                        |
-|-------------------|-----------------------------------|
-| Language          | Python 3.10+                      |
-| LLM               | OpenAI GPT-4o-mini                |
-| Embeddings        | OpenAI `text-embedding-ada-002`   |
-| Vector DB         | PostgreSQL + pgvector             |
-| ORM               | SQLAlchemy 2.0                    |
-| Document Loading  | LangChain / PyPDFLoader           |
-| Text Splitting    | RecursiveCharacterTextSplitter    |
-| Migrations        | Alembic                           |
-| API Framework     | FastAPI / Uvicorn (available)     |
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.10+ |
+| API Framework | FastAPI + Uvicorn |
+| Agent Orchestration | LangGraph |
+| LLM | OpenAI GPT-4o-mini |
+| Embeddings | OpenAI `text-embedding-ada-002` |
+| Vector Store | PostgreSQL + pgvector |
+| ORM | SQLAlchemy 2.0 |
+| Settings | Pydantic Settings |
+| Document Loading | LangChain / PyPDFLoader |
+| Web Search Fallback | DuckDuckGo Search |
+| Migrations | Alembic |
+| Containerization | Docker + docker-compose |
 
 ---
 
 ## ⚙️ Configuration
 
-| Parameter      | Location         | Default         | Description                          |
-|----------------|------------------|-----------------|--------------------------------------|
-| `chunk_size`   | `loader.py`      | `300`           | Characters per chunk                 |
-| `chunk_overlap`| `loader.py`      | `30`            | Overlap between consecutive chunks   |
-| `top_k`        | `database.py`    | `5`             | Number of chunks retrieved per query |
-| `model`        | `rag.py`         | `gpt-4o-mini`   | OpenAI chat model used for answers   |
+| Parameter | Location | Default | Description |
+|-----------|----------|---------|-------------|
+| `chunk_size` | `app/rag/loader.py` | `1000` | Characters per document chunk |
+| `chunk_overlap` | `app/rag/loader.py` | `100` | Overlap between consecutive chunks |
+| `top_k` | `app/rag/store.py` | `5` | Chunks retrieved per query |
+| `model` | `app/rag/generator.py` | `gpt-4o-mini` | OpenAI chat model |
 
 ---
 
 ## 📦 Key Dependencies
 
-- [`langchain`](https://github.com/langchain-ai/langchain) — Document loading, splitting, and LLM orchestration
+- [`langchain`](https://github.com/langchain-ai/langchain) — Document loading and text splitting
+- [`langgraph`](https://github.com/langchain-ai/langgraph) — Stateful multi-step agent framework
 - [`langchain-openai`](https://pypi.org/project/langchain-openai/) — OpenAI embeddings and chat models
+- [`langchain-postgres`](https://pypi.org/project/langchain-postgres/) — PGVector integration
 - [`pgvector`](https://github.com/pgvector/pgvector-python) — Vector similarity search in PostgreSQL
 - [`SQLAlchemy`](https://www.sqlalchemy.org/) — Database ORM
-- [`pypdf`](https://pypdf.readthedocs.io/) — PDF parsing
-- [`python-dotenv`](https://pypi.org/project/python-dotenv/) — Environment variable management
-- [`alembic`](https://alembic.sqlalchemy.org/) — Database migrations
-- [`fastapi`](https://fastapi.tiangolo.com/) / [`uvicorn`](https://www.uvicorn.org/) — API server (available for extension)
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit your changes: `git commit -m "Add your feature"`
-4. Push to the branch: `git push origin feature/your-feature`
-5. Open a Pull Request
+- [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) — Type-safe environment variable management
+- [`fastapi`](https://fastapi.tiangolo.com/) / [`uvicorn`](https://www.uvicorn.org/) — ASGI web framework
 
 ---
 

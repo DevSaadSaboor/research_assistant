@@ -1,1 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
 .env
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads (user documents — not committed)
+uploads/
+app/documents/
+
+# Alembic
+migrations/versions/*.pyc
