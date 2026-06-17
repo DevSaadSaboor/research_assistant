@@ -1,18 +1,22 @@
 # 🔬 Research Assistant
 
-A production-ready **Retrieval-Augmented Generation (RAG)** API that lets you upload PDF documents and ask natural language questions about them. Built with **FastAPI**, **LangGraph**, **OpenAI**, and **PostgreSQL + pgvector** — with streaming support, conversation memory, and web search fallback.
+> A production-ready **Retrieval-Augmented Generation (RAG)** API — upload PDF documents and ask natural language questions about them, with streaming responses, conversation memory, and automatic web search fallback.
+
+Built with **FastAPI**, **LangGraph**, **OpenAI**, and **PostgreSQL + pgvector**.
 
 ---
 
 ## ✨ Features
 
-- 📄 **PDF Ingestion** — Upload PDFs via API; they are chunked and embedded in the background
-- 🧠 **Vector Search** — OpenAI embeddings stored in PostgreSQL with `pgvector` for cosine similarity retrieval
-- 🤖 **LangGraph Agent** — Multi-step agentic pipeline with retrieval grading and web search fallback
-- 💬 **Conversation Memory** — Per-session chat history persisted in PostgreSQL
-- ⚡ **Streaming** — Token-by-token streamed responses via Server-Sent Events
-- 📝 **Document Summarization** — One-call summarization of any uploaded document
-- 🐳 **Docker Ready** — One command to spin up the full PostgreSQL + pgvector stack
+| Feature | Details |
+|---|---|
+| 📄 **PDF Ingestion** | Upload PDFs via REST API; chunking and embedding run in the background |
+| 🧠 **Vector Search** | OpenAI embeddings stored in PostgreSQL with `pgvector` for cosine similarity retrieval |
+| 🤖 **LangGraph Agent** | Multi-step agentic pipeline with retrieval grading and automatic web search fallback |
+| 💬 **Conversation Memory** | Per-session chat history persisted in PostgreSQL |
+| ⚡ **Streaming** | Token-by-token streamed responses via Server-Sent Events (SSE) |
+| 📝 **Summarization** | One-call summarization of any uploaded document |
+| 🐳 **Docker Ready** | Single command to spin up the full PostgreSQL + pgvector stack |
 
 ---
 
@@ -24,23 +28,23 @@ A production-ready **Retrieval-Augmented Generation (RAG)** API that lets you up
 User Question
      │
      ▼
-load_history_node    ← load conversation history from DB
+load_history_node    ← load conversation history from PostgreSQL
      │
      ▼
 retrieve_node        ← cosine similarity search (top-5 chunks)
      │
      ▼
-grade_retrieval_node ← LLM grades: is context sufficient?
+grade_retrieval_node ← LLM grades: is the retrieved context sufficient?
      │
-     ├─── YES ──────────────────────────────┐
-     │                                      │
-     └─── NO ──► web_search_node            │
-                 (DuckDuckGo fallback)       │
-                      │                     │
-                      └──────── generate_node ◄──┘
+     ├─── YES ──────────────────────────────────┐
+     │                                          │
+     └─── NO ──► web_search_node                │
+                 (DuckDuckGo fallback)           │
+                      │                         │
+                      └──────── generate_node ◄─┘
                                      │
                                      ▼
-                             save_messages_node ← persist Q&A to DB
+                             save_messages_node ← persist Q&A to PostgreSQL
                                      │
                                      ▼
                                   Answer
@@ -50,14 +54,14 @@ grade_retrieval_node ← LLM grades: is context sufficient?
 
 ```
 research_assistant/
-├── main.py                     # CLI entry point
+├── main.py                     # CLI entry point for local testing
 ├── app/
 │   ├── core/
 │   │   ├── config.py           # Pydantic Settings — single source of env vars
 │   │   └── database.py         # SQLAlchemy models + all DB session helpers
 │   ├── rag/
 │   │   ├── loader.py           # PDF loading + text chunking
-│   │   ├── store.py            # PGVector store creation + retriever
+│   │   ├── store.py            # PGVector store creation + retriever factory
 │   │   └── generator.py        # LLM answer generation + summarization
 │   ├── graph/
 │   │   ├── state.py            # GraphState TypedDict (shared agent state)
@@ -73,7 +77,7 @@ research_assistant/
 ├── alembic.ini
 ├── docker-compose.yml
 ├── requirements.txt
-└── .env
+└── .env                        # Local secrets (not committed to git)
 ```
 
 ---
@@ -82,9 +86,11 @@ research_assistant/
 
 ### Prerequisites
 
-- Python 3.10+
-- Docker (for PostgreSQL + pgvector)
-- An [OpenAI API key](https://platform.openai.com/api-keys)
+- **Python 3.10+**
+- **Docker** (for PostgreSQL + pgvector)
+- An **[OpenAI API key](https://platform.openai.com/api-keys)**
+
+---
 
 ### 1. Clone the Repository
 
@@ -126,9 +132,15 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/research_assistant
 docker-compose up -d
 ```
 
-This starts a PostgreSQL 16 container with the `pgvector` extension pre-installed. No manual `CREATE EXTENSION` needed.
+> This starts a PostgreSQL 16 container with the `pgvector` extension pre-installed. No manual `CREATE EXTENSION` step is required.
 
-### 6. Start the API Server
+### 6. Run Database Migrations
+
+```bash
+alembic upgrade head
+```
+
+### 7. Start the API Server
 
 ```bash
 uvicorn app.api.routes:app --reload
@@ -139,13 +151,13 @@ Open **http://localhost:8000/docs** for the interactive Swagger UI.
 
 ---
 
-## 📡 API Endpoints
+## 📡 API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/upload` | Upload a PDF — embedding runs in the background |
 | `POST` | `/ask` | Ask a question — returns a single JSON response |
-| `POST` | `/ask_stream` | Ask a question — streams tokens as plain text |
+| `POST` | `/ask_stream` | Ask a question — streams tokens via SSE |
 | `GET` | `/documents` | List all uploaded document names |
 | `DELETE` | `/documents/{file_name}` | Delete all chunks for a document |
 | `POST` | `/summarize` | Summarize an uploaded document |
@@ -177,11 +189,11 @@ curl -X POST http://localhost:8000/ask_stream \
 
 ## 💻 CLI Mode
 
-For quick local testing without the API server:
+For quick local testing without running the full API server:
 
 ```bash
-# 1. Place your PDF in uploads/
-# 2. Update FILE_PATH in main.py
+# 1. Place your PDF in the uploads/ directory
+# 2. Update FILE_PATH in main.py to point to your PDF
 python main.py
 ```
 
@@ -190,7 +202,7 @@ python main.py
 ## 🛠️ Tech Stack
 
 | Component | Technology |
-|-----------|-----------|
+|-----------|------------|
 | Language | Python 3.10+ |
 | API Framework | FastAPI + Uvicorn |
 | Agent Orchestration | LangGraph |
@@ -208,12 +220,14 @@ python main.py
 
 ## ⚙️ Configuration
 
-| Parameter | Location | Default | Description |
-|-----------|----------|---------|-------------|
+The following parameters can be tuned directly in the source:
+
+| Parameter | File | Default | Description |
+|-----------|------|---------|-------------|
 | `chunk_size` | `app/rag/loader.py` | `1000` | Characters per document chunk |
 | `chunk_overlap` | `app/rag/loader.py` | `100` | Overlap between consecutive chunks |
-| `top_k` | `app/rag/store.py` | `5` | Chunks retrieved per query |
-| `model` | `app/rag/generator.py` | `gpt-4o-mini` | OpenAI chat model |
+| `top_k` | `app/rag/store.py` | `5` | Number of chunks retrieved per query |
+| `model` | `app/rag/generator.py` | `gpt-4o-mini` | OpenAI chat model used for generation |
 
 ---
 
@@ -226,7 +240,8 @@ python main.py
 - [`pgvector`](https://github.com/pgvector/pgvector-python) — Vector similarity search in PostgreSQL
 - [`SQLAlchemy`](https://www.sqlalchemy.org/) — Database ORM
 - [`pydantic-settings`](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) — Type-safe environment variable management
-- [`fastapi`](https://fastapi.tiangolo.com/) / [`uvicorn`](https://www.uvicorn.org/) — ASGI web framework
+- [`fastapi`](https://fastapi.tiangolo.com/) / [`uvicorn`](https://www.uvicorn.org/) — ASGI web framework and server
+- [`alembic`](https://alembic.sqlalchemy.org/) — Database schema migrations
 
 ---
 
