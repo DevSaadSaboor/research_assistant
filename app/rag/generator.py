@@ -9,25 +9,12 @@ summary_llm = ChatOpenAI(
     max_tokens=8192,
 )
 
-# One-pass summarization works for short docs; longer PDFs use map-reduce below.
+
 _SINGLE_PASS_LIMIT = 40_000
 _MAP_CHUNK_SIZE = 50_000
 _MAP_CHUNK_OVERLAP = 500
 
 
-def generate_answer(question: str, context: str) -> str:
-    prompt = f"""
-    You are an AI research assistant.
-    Use only the provided context to answer the question.
-
-    Context:
-    {context}
-
-    Question:
-    {question}
-    """
-    response = llm.invoke(prompt)
-    return response.content
 
 
 def _summarize_section(text: str, section_number: int, section_total: int) -> str:

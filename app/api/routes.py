@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from app.rag.loader import load_document, chunk_documents
@@ -24,6 +25,13 @@ app = FastAPI(
     description="Upload PDFs and ask questions powered by RAG + LangGraph.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -69,7 +77,10 @@ def ask(request: QuestionRequest):
         },
         config={"configurable": {"thread_id": request.session_id}},
     )
-    return {"answer": result["answer"]}
+    return {
+        "answer": result["answer"],
+        "sources": result.get("sources", []),
+    }
 
 
 @app.post("/ask_stream", summary="Ask a question and receive a streamed response")

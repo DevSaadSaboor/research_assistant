@@ -1,5 +1,6 @@
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
+from sqlalchemy import create_engine, text
 from app.core.config import settings
 embedding = OpenAIEmbeddings(api_key=settings.openai_api_key)
 
@@ -16,16 +17,7 @@ def create_vector_store(chunks, connection_string: str | None = None):
 
 
 def delete_from_vector_store(file_name: str) -> None:
-    """
-    Remove all embeddings for a document from the PGVector collection.
-
-    PGVector stores embeddings in langchain_pg_embedding. Each row carries
-    a 'cmetadata' JSON column that includes 'source' (the file path set by
-    PyPDFLoader). We match on file_name as a suffix so the lookup is
-    path-independent.
-    """
-    from sqlalchemy import create_engine, text
-
+    
     engine = create_engine(settings.database_url)
     with engine.connect() as conn:
         conn.execute(
@@ -48,4 +40,7 @@ def get_retriever():
         collection_name="research_documents",
         connection=settings.database_url,
     )
-    return vector_store.as_retriever(search_kwargs={"k": 5})
+    return vector_store.as_retriever(
+        search_type="similarity_score_threshold",
+        search_kwargs={"score_threshold": 0.65, "k": 5},
+    )

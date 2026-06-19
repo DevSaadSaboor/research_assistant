@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, Integer, Text, DateTime, distinct
+from sqlalchemy import create_engine, Column, Integer, Text, DateTime, distinct, Index
 from sqlalchemy.orm import declarative_base, sessionmaker
 from app.core.config import settings
 
@@ -20,10 +20,10 @@ class Documents(Base):
 class Message(Base):
     __tablename__ = "messages"
 
-    id = Column(Integer, primary_key=True)
-    session_id = Column(Text, nullable=False)
-    role = Column(Text, nullable=False)
-    content = Column(Text, nullable=False)
+    id         = Column(Integer, primary_key=True)
+    session_id = Column(Text, nullable=False, index=True)  # indexed for fast history lookup
+    role       = Column(Text, nullable=False)
+    content    = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False)
 
 
